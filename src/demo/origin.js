@@ -6,16 +6,15 @@ export default function Origin () {
     <div>
       <h1>origin</h1>
       <input value={color} onChange={(e) => setColor(e.target.value)} />
-      <p style={{ color }}>Hello, world!</p>
+      <p style={{ color }}>Hello, {color}!</p>
       <ExpensiveTree />
     </div>
   );
 }
 
 function ExpensiveTree (props) {
-  console.log(props)
   let now = performance.now();
-  while (performance.now() - now < 100) {
+  while (performance.now() - now < 500) {
     // Artificial delay -- do nothing for 100ms
   }
   return <p>I am a very slow component tree.</p>;

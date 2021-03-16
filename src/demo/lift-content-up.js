@@ -5,7 +5,6 @@ export default function LiftContentUp () {
     <div>
       <h1>Lift Content Up</h1>
       <ColorPicker>
-        <p>Hello, world!</p>
         <ExpensiveTree />
       </ColorPicker>
     </div>
@@ -17,6 +16,7 @@ function ColorPicker ({ children }) {
   return (
     <div style={{ color }}>
       <input value={color} onChange={(e) => setColor(e.target.value)} />
+      <p>Hello, {color}!</p>
       {children}
     </div>
   );
@@ -24,7 +24,7 @@ function ColorPicker ({ children }) {
 
 function ExpensiveTree () {
   let now = performance.now();
-  while (performance.now() - now < 100) {
+  while (performance.now() - now < 500) {
     // Artificial delay -- do nothing for 100ms
   }
   return <p>I am a very slow component tree.</p>;

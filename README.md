@@ -1,70 +1,172 @@
-# Getting Started with Create React App
+# Before you memo()
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+> https://overreacted.io/before-you-memo/
 
-## Available Scripts
+## 有哪些优化 React 代码的手段？
 
-In the project directory, you can run:
+1. 验证是否正在运行一个生产环境的构建。（开发环境构建会刻意地缓慢一些，极端情况下可能会慢一个数量级）
+2. 验证是否将树中的状态放在了一个比实际所需更高的位置上。（例如，将输入框的 state 放到了集中的 store 里可能不是一个好主意）
+3. 运行 React 开发者工具来检测是什么导致了二次渲染，以及在高开销的子树上包裹 memo()。（以及在需要的地方使用 useMemo()）
 
-### `yarn start`
+## 为什么
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+```js
+function beginWork(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  renderLanes: Lanes
+): Fiber | null {
+  const updateLanes = workInProgress.lanes;
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+  if (current !== null) {
+    const oldProps = current.memoizedProps;
+    const newProps = workInProgress.pendingProps;
 
-### `yarn test`
+    if (
+      oldProps !== newProps ||
+      hasLegacyContextChanged() ||
+      (__DEV__ ? workInProgress.type !== current.type : false)
+    ) {
+      didReceiveUpdate = true;
+    } else if (!includesSomeLane(renderLanes, updateLanes)) {
+      didReceiveUpdate = false;
+      // ...
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+      return bailoutOnAlreadyFinishedWork(current, workInProgress, renderLanes);
+    }
+  } else {
+    didReceiveUpdate = false;
+  }
 
-### `yarn build`
+  workInProgress.lanes = NoLanes;
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+  // reconcileChildren
+}
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+`bailoutOnAlreadyFinishedWork`是复用逻辑，可以看到进入该方法的判断条件：
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+1. oldProps === newProps
+<!-- 2. legacy context 没被修改 -->
+2. 不包含与本次 fiber 一致优先级的更新
 
-### `yarn eject`
+- `Origin`
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+  每一次 rerender 对于`ExpensiveTree`来说都是调用了 `React.createElement(ExpensiveTree, null))`。
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+  ```js
+  export function createElement(type, config, children) {
+    let propName;
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+    // Reserved names are extracted
+    const props = {};
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+    // ...
 
-## Learn More
+    if (config !== null) {
+      // ...
+      props[propName] = config[propName];
+    }
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+    // ...
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+    return ReactElement(
+      type,
+      key,
+      ref,
+      self,
+      source,
+      ReactCurrentOwner.current,
+      props
+    );
+  }
+  ```
 
-### Code Splitting
+  由于 `{}==={}`返回`false`，所以`条件1`不符合，会触发渲染。
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+- memo
 
-### Analyzing the Bundle Size
+  `memo`方法会将`fiber.tag`标记为`SimpleMemoComponent`。在`beginWork`的条件里，其实是不符合`条件1`跳过了第一次的`bailoutOnAlreadyFinishedWork`。
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+  在接下来根据`tag`进入`updateSimpleMemoComponent`方法中，可以看到一个类似`beginWork`的过程：
 
-### Making a Progressive Web App
+  ```js
+  function updateSimpleMemoComponent() {
+    if (current !== null) {
+      const prevProps = current.memoizedProps;
+      if (
+        // memo条件1
+        shallowEqual(prevProps, nextProps) &&
+        current.ref === workInProgress.ref
+      ) {
+        didReceiveUpdate = false;
+        // memo条件2
+        if (!includesSomeLane(renderLanes, updateLanes)) {
+          workInProgress.lanes = current.lanes;
+          return bailoutOnAlreadyFinishedWork(
+            current,
+            workInProgress,
+            renderLanes
+          );
+        }
+      }
+    }
+    return updateFunctionComponent();
+  }
+  ```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+  在本例中，符合`memo`条件，所以仍然可以执行到`bailoutOnAlreadyFinishedWork`。
 
-### Advanced Configuration
+- move state down
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+  这种情况下，`ColorPicker`和`ExpensiveTree`已经分别属于两个组件了，修改`ColorPicker`不会影响到`ExpensiveTree`，所以`ExpensiveTree`可以一直复用。
 
-### Deployment
+- lift content up
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+  在`LiftContentUp`中，对于`ExpensiveTree`来说，它在`ColorPicker`中意味着是`props.children`。
 
-### `yarn build` fails to minify
+  对于`ColorPicker`来说，它的`props.children` 在 App 中没有重新渲染，props 也没有改变。在`setState`中并没有发生变化。
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```js
+function bailoutOnAlreadyFinishedWork(
+  current: Fiber | null,
+  workInProgress: Fiber,
+  renderLanes: Lanes
+): Fiber | null {
+  if (current !== null) {
+    // Reuse previous dependencies
+    workInProgress.dependencies = current.dependencies;
+  }
+
+  markSkippedUpdateLanes(workInProgress.lanes);
+
+  // Check if the children have any pending work.
+  if (!includesSomeLane(renderLanes, workInProgress.childLanes)) {
+    // The children don't have any work either. We can skip them.
+    // TODO: Once we add back resuming, we should check if the children are
+    // a work-in-progress set. If so, we need to transfer their effects.q
+    return null;
+  } else {
+    // This fiber doesn't have work, but its subtree does. Clone the child fibers and continue.
+    cloneChildFibers(current, workInProgress);
+    return workInProgress.child;
+  }
+}
+
+function performUnitOfWork(unitOfWork: Fiber): void {
+  const current = unitOfWork.alternate;
+  setCurrentDebugFiberInDEV(unitOfWork);
+
+  let next = beginWork(current, unitOfWork, subtreeRenderLanes);
+
+  unitOfWork.memoizedProps = unitOfWork.pendingProps;
+  if (next === null) {
+    // If this doesn't spawn new work, complete the current work.
+    completeUnitOfWork(unitOfWork);
+  } else {
+    workInProgress = next;
+  }
+
+  ReactCurrentOwner.current = null;
+}
+```
