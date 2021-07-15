@@ -1,6 +1,6 @@
-import { useState, memo } from 'react';
+import { useEffect, useState, memo } from 'react';
 
-export default function Memo () {
+export default function Memo() {
   let [color, setColor] = useState('red');
   return (
     <div>
@@ -13,6 +13,10 @@ export default function Memo () {
 }
 
 const ExpensiveTree = memo((props) => {
+  useEffect(() => {
+    console.log('Memo: render ExpensiveTree')
+  })
+
   let now = performance.now();
   while (performance.now() - now < 500) {
     // Artificial delay -- do nothing for 100ms

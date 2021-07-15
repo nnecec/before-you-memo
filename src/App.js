@@ -8,9 +8,10 @@ import LiftContentUp from './demo/lift-content-up';
 function App () {
   return (
     <div className="App">
-      {/* <Origin /> */}
-      {/* <Memo /> */}
-      {/* <MoveStateDown /> */}
+      Article url: <a href="https://overreacted.io/before-you-memo/" target="_blank" rel="noreferrer">before you memo()</a>
+      <Origin />
+      <Memo />
+      <MoveStateDown />
       <LiftContentUp />
     </div>
   );
