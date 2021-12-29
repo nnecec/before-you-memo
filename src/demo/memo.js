@@ -13,10 +13,6 @@ export default function Memo() {
 }
 
 const ExpensiveTree = memo((props) => {
-  useEffect(() => {
-    console.log('Memo: render ExpensiveTree')
-  })
-
   let now = performance.now();
   while (performance.now() - now < 500) {
     // Artificial delay -- do nothing for 100ms
